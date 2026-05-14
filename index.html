@@ -94,9 +94,39 @@ body{font-family:-apple-system,'Inter',sans-serif;font-size:12px;background:#f1f
 #syncDot{width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;margin-left:8px;vertical-align:middle;transition:background .4s;}
 #syncDot.saving{background:#f97316;}
 #syncDot.error{background:#ef4444;}
+
+/* ── Password gate ── */
+#authGate{position:fixed;inset:0;background:var(--navy);display:flex;align-items:center;justify-content:center;z-index:99999;}
+#authGate.hidden{display:none;}
+.auth-box{background:#1e293b;border-radius:12px;padding:40px 36px;width:340px;text-align:center;box-shadow:0 24px 64px rgba(0,0,0,.5);}
+.auth-logo{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:24px;}
+.auth-logo-dot{width:20px;height:20px;background:var(--orange);border-radius:50%;}
+.auth-logo-txt{color:white;font-weight:700;font-size:18px;}
+.auth-title{color:white;font-size:15px;font-weight:600;margin-bottom:6px;}
+.auth-sub{color:#64748b;font-size:12px;margin-bottom:24px;}
+.auth-input{width:100%;background:#0f1a2e;border:1px solid #334155;border-radius:6px;padding:10px 14px;color:white;font-size:14px;outline:none;text-align:center;letter-spacing:2px;}
+.auth-input:focus{border-color:var(--orange);box-shadow:0 0 0 3px rgba(249,115,22,.2);}
+.auth-btn{width:100%;margin-top:14px;padding:10px;background:var(--orange);color:white;border:none;border-radius:6px;font-size:13px;font-weight:700;cursor:pointer;}
+.auth-btn:hover{opacity:.9;}
+.auth-err{color:#f87171;font-size:11px;margin-top:10px;min-height:16px;}
 </style>
 </head>
 <body>
+
+<div id="authGate">
+  <div class="auth-box">
+    <div class="auth-logo">
+      <div class="auth-logo-dot"></div>
+      <span class="auth-logo-txt">Guidewheel</span>
+    </div>
+    <div class="auth-title">Astro Shapes Rollout</div>
+    <div class="auth-sub">Enter the team password to continue</div>
+    <input id="authInput" class="auth-input" type="password" placeholder="••••••••"
+      onkeydown="if(event.key==='Enter') submitPassword()">
+    <button class="auth-btn" onclick="submitPassword()">Enter</button>
+    <div class="auth-err" id="authErr"></div>
+  </div>
+</div>
 
 <div class="app-header" id="appHeader"></div>
 <div class="gantt-wrapper" id="ganttWrapper">
@@ -166,8 +196,42 @@ const INITIAL_DATA = {
 // ══════════════════════════════════════════════════════════
 let data;
 let _localRev = 0;
+let _authToken = sessionStorage.getItem('gantt_token') || null;
 
-function setSyncDot(state){ // 'ok' | 'saving' | 'error'
+// ── Password gate ─────────────────────────────────────────────
+async function submitPassword(){
+  const pw = document.getElementById('authInput').value;
+  const errEl = document.getElementById('authErr');
+  errEl.textContent = '';
+  try {
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ password: pw })
+    });
+    const json = await res.json();
+    if (json.ok) {
+      _authToken = json.token; // null if no password set on server
+      if (_authToken) sessionStorage.setItem('gantt_token', _authToken);
+      document.getElementById('authGate').classList.add('hidden');
+      await loadData(); render(); setTimeout(scrollToToday, 100);
+    } else {
+      errEl.textContent = 'Incorrect password — try again.';
+      document.getElementById('authInput').value = '';
+      document.getElementById('authInput').focus();
+    }
+  } catch(e) {
+    errEl.textContent = 'Could not connect to server.';
+  }
+}
+
+function authHeaders(){
+  const h = {'Content-Type':'application/json'};
+  if (_authToken) h['Authorization'] = `Bearer ${_authToken}`;
+  return h;
+}
+
+function setSyncDot(state){
   const dot = document.getElementById('syncDot');
   if(!dot) return;
   dot.className = state === 'ok' ? '' : state;
@@ -175,7 +239,8 @@ function setSyncDot(state){ // 'ok' | 'saving' | 'error'
 
 async function loadData(){
   try {
-    const res = await fetch('/api/data');
+    const res = await fetch('/api/data', { headers: authHeaders() });
+    if (res.status === 401) { showAuthGate(); return; }
     const json = await res.json();
     if (json) { data = json; _localRev = json._rev || 0; }
     else data = JSON.parse(JSON.stringify(INITIAL_DATA));
@@ -190,9 +255,16 @@ function saveData(){
   setSyncDot('saving');
   fetch('/api/data', {
     method: 'POST',
-    headers: {'Content-Type':'application/json'},
+    headers: authHeaders(),
     body: JSON.stringify(data)
   }).then(()=>setSyncDot('ok')).catch(()=>setSyncDot('error'));
+}
+
+function showAuthGate(){
+  _authToken = null;
+  sessionStorage.removeItem('gantt_token');
+  document.getElementById('authGate').classList.remove('hidden');
+  setTimeout(()=>document.getElementById('authInput').focus(), 100);
 }
 
 function getTask(id){ return data.tasks.find(t=>t.id===id); }
@@ -739,10 +811,43 @@ function resetData(){
 // ══════════════════════════════════════════════════════════
 // Init + team sync polling
 // ══════════════════════════════════════════════════════════
-loadData().then(() => {
-  render();
-  setTimeout(scrollToToday, 100);
-});
+(async () => {
+  // If we have a stored token (or no password is set), skip the gate
+  const check = await fetch('/api/login', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ password: '' })
+  }).catch(()=>null);
+
+  if (check && check.ok) {
+    const json = await check.json().catch(()=>null);
+    if (json && json.ok) {
+      // No password configured — skip gate entirely
+      document.getElementById('authGate').classList.add('hidden');
+      await loadData(); render(); setTimeout(scrollToToday, 100);
+      return;
+    }
+  }
+
+  if (_authToken) {
+    // Try the stored token
+    const res = await fetch('/api/data', { headers: authHeaders() });
+    if (res.ok) {
+      document.getElementById('authGate').classList.add('hidden');
+      const json = await res.json();
+      if (json) { data = json; _localRev = json._rev || 0; }
+      else data = JSON.parse(JSON.stringify(INITIAL_DATA));
+      render(); setTimeout(scrollToToday, 100);
+      return;
+    }
+    // Token expired or wrong — clear it and show gate
+    _authToken = null;
+    sessionStorage.removeItem('gantt_token');
+  }
+
+  // Show password gate
+  setTimeout(()=>document.getElementById('authInput').focus(), 100);
+})();
 
 // Poll every 15s — if another user saved, re-render with their changes
 setInterval(async () => {
