@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Astro Shapes · Guidewheel Rollout</title>
+<style>
+:root { --orange:#f97316; --navy:#0f1a2e; --row-h:36px; --day-w:26px; }
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:-apple-system,'Inter',sans-serif;font-size:12px;background:#f1f5f9;overflow:hidden;}
+
+/* ── Header ── */
+.app-header{height:52px;background:var(--navy);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:relative;z-index:200;}
+.logo{display:flex;align-items:center;gap:8px;}
+.logo-dot{width:16px;height:16px;background:var(--orange);border-radius:50%;}
+.logo-txt{color:white;font-weight:700;font-size:14px;}
+.proj-name{color:#cbd5e1;font-size:13px;margin-left:16px;cursor:pointer;border-bottom:1px dashed transparent;}
+.proj-name:hover{border-bottom-color:#475569;}
+.hdr-btns{display:flex;gap:8px;}
+.btn{padding:5px 14px;border:none;border-radius:5px;cursor:pointer;font-size:11px;font-weight:600;transition:opacity .15s;}
+.btn:hover{opacity:.85;}
+.btn-ghost{background:rgba(255,255,255,.15);color:white;}
+.btn-danger{background:#ef4444;color:white;}
+.btn-orange{background:var(--orange);color:white;}
+
+/* ── Layout ── */
+.gantt-wrapper{height:calc(100vh - 52px);overflow:auto;position:relative;}
+
+/* ── Table ── */
+.gantt-table{border-collapse:collapse;table-layout:fixed;}
+.gantt-table td,.gantt-table th{border:1px solid #e2e8f0;padding:0 4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.gantt-table tr{height:var(--row-h);}
+
+/* ── Sticky header ── */
+.gantt-table thead th{position:sticky;top:0;z-index:30;background:#1e293b;color:white;font-size:10px;font-weight:600;letter-spacing:.3px;border-color:#334155;}
+.gantt-table thead tr:first-child th{top:0;}
+.gantt-table thead tr:last-child th{top:22px;}
+
+/* ── Sticky left cols ── */
+.sc{position:sticky;z-index:10;background:#fff;}
+.gantt-table thead th.sc{z-index:40;background:#1e293b;}
+.col-num {width:36px; min-width:36px; left:0px;}
+.col-task{width:230px;min-width:230px;left:36px;}
+.col-own {width:95px; min-width:95px; left:266px;}
+.col-s   {width:88px; min-width:88px; left:361px;}
+.col-e   {width:88px; min-width:88px; left:449px;}
+.col-pct {width:58px; min-width:58px; left:537px;}
+.col-dep {width:62px; min-width:62px; left:595px;}
+/* sticky border shadow */
+.col-dep{box-shadow:3px 0 6px rgba(0,0,0,.08);}
+.gantt-table thead th.col-dep{box-shadow:3px 0 6px rgba(0,0,0,.2);}
+
+/* ── Day columns ── */
+.col-day{width:var(--day-w);min-width:var(--day-w);padding:0;text-align:center;}
+
+/* ── Category rows ── */
+.cat-row td{font-weight:700;font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:white;border-color:rgba(255,255,255,.15);cursor:default;}
+.cat-row td.sc{color:white;}
+
+/* ── Task rows ── */
+.task-row td.sc{background:#fff;}
+.task-row:hover td.sc{background:#f0f9ff !important;}
+.task-row.even td.sc{background:#f8fafc;}
+.task-row.even:hover td.sc{background:#f0f9ff !important;}
+
+/* ── Editable cells ── */
+.editable{cursor:pointer;}
+.editable:hover{background:#eff6ff !important;color:#1d4ed8;}
+
+/* ── Popup ── */
+#editPopup{position:fixed;z-index:9999;background:white;border:1px solid #e2e8f0;border-radius:8px;padding:12px;box-shadow:0 8px 32px rgba(0,0,0,.18);min-width:220px;display:none;}
+#editPopup label{display:block;font-size:10px;font-weight:600;color:#6b7280;margin-bottom:4px;}
+#editPopup input,#editPopup select,#editPopup textarea{width:100%;border:1px solid #d1d5db;border-radius:4px;padding:5px 8px;font-size:12px;outline:none;font-family:inherit;}
+#editPopup input:focus,#editPopup select:focus{border-color:var(--orange);box-shadow:0 0 0 2px rgba(249,115,22,.2);}
+#editPopup input[type=range]{padding:0;}
+.popup-row{margin-bottom:8px;}
+.popup-btns{display:flex;gap:6px;margin-top:10px;justify-content:flex-end;}
+.popup-btns button{padding:4px 12px;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600;}
+.popup-save{background:var(--orange);color:white;}
+.popup-cancel{background:#f1f5f9;color:#374151;}
+
+/* ── Add cat/task buttons ── */
+.add-cat-row td{background:#f8fafc;border-color:#e2e8f0;}
+
+/* ── Today marker ── */
+.today-hdr{background:var(--orange) !important;color:white !important;}
+.today-cell{outline:2px solid var(--orange);outline-offset:-2px;}
+
+/* ── Weekend ── */
+.wknd-hdr{background:#283548 !important;color:#64748b !important;}
+.wknd-cell{background:#f7f9fc !important;}
+
+/* ── Sync indicator ── */
+#syncDot{width:7px;height:7px;border-radius:50%;background:#22c55e;display:inline-block;margin-left:8px;vertical-align:middle;transition:background .4s;}
+#syncDot.saving{background:#f97316;}
+#syncDot.error{background:#ef4444;}
+</style>
+</head>
+<body>
+
+<div class="app-header" id="appHeader"></div>
+<div class="gantt-wrapper" id="ganttWrapper">
+  <table class="gantt-table" id="ganttTable"></table>
+</div>
+<div id="editPopup"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════
+// Date helpers
+// ══════════════════════════════════════════════════════════
+function parseDate(s){ return new Date(s+'T00:00:00'); }
+function dateToStr(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function addDays(s,n){ const d=parseDate(s); d.setDate(d.getDate()+n); return dateToStr(d); }
+function daysBetween(a,b){ return Math.round((parseDate(b)-parseDate(a))/86400000); }
+function isWeekend(s){ const day=parseDate(s).getDay(); return day===0||day===6; }
+function fmtDate(s){ if(!s)return'—'; const d=parseDate(s); return d.toLocaleDateString('en-US',{month:'short',day:'numeric'}); }
+function dayLetter(s){ return['S','M','T','W','T','F','S'][parseDate(s).getDay()]; }
+function hexRgba(hex,a){ const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return `rgba(${r},${g},${b},${a})`; }
+const TODAY = dateToStr(new Date());
+function genId(){ return 'id'+Date.now()+Math.random().toString(36).slice(2,6); }
+
+// ══════════════════════════════════════════════════════════
+// Initial data
+// ══════════════════════════════════════════════════════════
+const INITIAL_DATA = {
+  projectName: "Astro Shapes — Guidewheel Deployment",
+  categories: [
+    { id:"c1", name:"Onboarding",         color:"#1e40af" },
+    { id:"c2", name:"Downtime Tagging",   color:"#065f46" },
+    { id:"c3", name:"Production Tracking",color:"#6d28d9" },
+    { id:"c4", name:"Reporting",          color:"#92400e" },
+    { id:"c5", name:"MISC",               color:"#374151" },
+  ],
+  tasks: [
+    // Onboarding
+    { id:"t1",  catId:"c1", name:"Define Timeline",                                          owner:"Max Garrow", pct:50, start:"2026-05-12", end:"2026-05-15", dep:null },
+    { id:"t2",  catId:"c1", name:"Gather Site Specific Tags",                                owner:"Mitchell",   pct:60, start:"2026-05-15", end:"2026-05-17", dep:"t1" },
+    { id:"t3",  catId:"c1", name:"Add All Users",                                            owner:"Mitchell",   pct:50, start:"2026-05-17", end:"2026-05-21", dep:"t2" },
+    { id:"t4",  catId:"c1", name:"Initial Site Training for Each Plant",                     owner:"Mitchell",   pct:25, start:"2026-05-21", end:"2026-05-26", dep:"t3" },
+    { id:"t5",  catId:"c1", name:"Setup Downtime Alerts",                                    owner:"Mitchell",   pct:25, start:"2026-05-28", end:"2026-06-02", dep:null  },
+    { id:"t6",  catId:"c1", name:"Define Runtime Targets",                                   owner:"Mitchell",   pct:25, start:"2026-05-16", end:"2026-05-18", dep:null  },
+    // Downtime Tagging
+    { id:"t7",  catId:"c2", name:"Define Hardware for Each Plant (Tablet, Scanner, Monitor)",owner:"Terry",      pct:50, start:"2026-05-21", end:"2026-05-25", dep:null  },
+    { id:"t8",  catId:"c2", name:"Add QR Codes for Each Downtime Tag",                       owner:"Maxwell",    pct:50, start:"2026-05-26", end:"2026-05-31", dep:"t7"  },
+    { id:"t9",  catId:"c2", name:"Add Downtime Scanner Feature to Platform",                 owner:"Maxwell",    pct:0,  start:"2026-06-03", end:"2026-06-06", dep:"t8"  },
+    { id:"t10", catId:"c2", name:"Train Team in One Plant on Scanner Feature",               owner:"Erin",       pct:0,  start:"2026-06-08", end:"2026-06-10", dep:"t9"  },
+    { id:"t11", catId:"c2", name:"Roll Out Scanner Training to All Plants",                  owner:"Erin",       pct:0,  start:"2026-06-08", end:"2026-06-11", dep:"t10" },
+    // Production Tracking
+    { id:"t12", catId:"c3", name:"Input Product Families in Platform",                       owner:"Erin",       pct:50, start:"2026-05-27", end:"2026-06-01", dep:null  },
+    { id:"t13", catId:"c3", name:"Input All Products & Standards into Guidewheel",           owner:"Erin",       pct:60, start:"2026-06-02", end:"2026-06-06", dep:"t12" },
+    { id:"t14", catId:"c3", name:"Decide on Hardware for Production Entries",                owner:"Terry",      pct:50, start:"2026-06-07", end:"2026-06-12", dep:null  },
+    { id:"t15", catId:"c3", name:"Add Production Entry Feature",                             owner:"Erin",       pct:25, start:"2026-06-13", end:"2026-06-17", dep:"t14" },
+    { id:"t16", catId:"c3", name:"Train Team in One Plant on Production Tracking",           owner:"Erin",       pct:25, start:"2026-06-02", end:"2026-06-06", dep:null  },
+    { id:"t17", catId:"c3", name:"Roll Out Production Tracking Training to All Plants",      owner:"Erin",       pct:25, start:"2026-06-07", end:"2026-06-11", dep:"t16" },
+    // Reporting
+    { id:"t18", catId:"c4", name:"Setup Email Reports",                                      owner:"Mitchell",   pct:25, start:"2026-05-23", end:"2026-05-26", dep:null  },
+    { id:"t19", catId:"c4", name:"Define OEE Report (frequency, visuals, etc.)",             owner:"Erin",       pct:25, start:"2026-06-16", end:"2026-06-20", dep:null  },
+    // MISC
+    { id:"t20", catId:"c5", name:"SSO",                                                      owner:"Max",        pct:25, start:"2026-05-29", end:"2026-06-01", dep:null  },
+  ],
+  collapsed: {}
+};
+
+// ══════════════════════════════════════════════════════════
+// State & persistence (shared via server API)
+// ══════════════════════════════════════════════════════════
+let data;
+let _localRev = 0;
+
+function setSyncDot(state){ // 'ok' | 'saving' | 'error'
+  const dot = document.getElementById('syncDot');
+  if(!dot) return;
+  dot.className = state === 'ok' ? '' : state;
+}
+
+async function loadData(){
+  try {
+    const res = await fetch('/api/data');
+    const json = await res.json();
+    if (json) { data = json; _localRev = json._rev || 0; }
+    else data = JSON.parse(JSON.stringify(INITIAL_DATA));
+  } catch(e) {
+    data = JSON.parse(JSON.stringify(INITIAL_DATA));
+  }
+}
+
+function saveData(){
+  _localRev = (_localRev || 0) + 1;
+  data._rev = _localRev;
+  setSyncDot('saving');
+  fetch('/api/data', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(data)
+  }).then(()=>setSyncDot('ok')).catch(()=>setSyncDot('error'));
+}
+
+function getTask(id){ return data.tasks.find(t=>t.id===id); }
+function getCat(id){ return data.categories.find(c=>c.id===id); }
+function taskNum(id){ let n=0; for(const t of data.tasks){ if(t.dep!==undefined) n++; if(t.id===id) return n; } return 0; }
+function allTaskNums(){ const m={}; let n=0; data.tasks.forEach(t=>{ n++; m[t.id]=n; }); return m; }
+
+// ══════════════════════════════════════════════════════════
+// Dependency cascade
+// ══════════════════════════════════════════════════════════
+function cascade(predId, visited=new Set()){
+  if(visited.has(predId)) return;
+  visited.add(predId);
+  const pred = getTask(predId);
+  if(!pred) return;
+  data.tasks.filter(t=>t.dep===predId).forEach(dep=>{
+    const dur = daysBetween(dep.start, dep.end);
+    dep.start = addDays(pred.end, 1);
+    dep.end   = addDays(dep.start, dur);
+    cascade(dep.id, visited);
+  });
+}
+
+// ══════════════════════════════════════════════════════════
+// Date range
+// ══════════════════════════════════════════════════════════
+function getDateRange(){
+  const starts = data.tasks.map(t=>t.start).filter(Boolean);
+  const ends   = data.tasks.map(t=>t.end).filter(Boolean);
+  let minD = starts.length ? starts.reduce((a,b)=>a<b?a:b) : TODAY;
+  let maxD = ends.length   ? ends.reduce((a,b)=>a>b?a:b)   : addDays(TODAY,60);
+  minD = addDays(minD,-7);
+  maxD = addDays(maxD,21);
+  const dates=[];
+  let cur=parseDate(minD), end=parseDate(maxD);
+  while(cur<=end){ dates.push(dateToStr(cur)); cur.setDate(cur.getDate()+1); }
+  return dates;
+}
+
+// ══════════════════════════════════════════════════════════
+// Render
+// ══════════════════════════════════════════════════════════
+function render(){
+  renderHeader();
+  renderTable();
+}
+
+function renderHeader(){
+  document.getElementById('appHeader').innerHTML=`
+    <div style="display:flex;align-items:center;gap:6px;">
+      <div class="logo"><div class="logo-dot"></div><span class="logo-txt">Guidewheel</span></div>
+      <span style="color:#475569;margin:0 6px;">|</span>
+      <span class="proj-name" title="Double-click to rename" ondblclick="editProjectName(this)">${data.projectName}</span>
+      <span id="syncDot" title="Sync status"></span>
+    </div>
+    <div class="hdr-btns">
+      <button class="btn btn-ghost" onclick="scrollToToday()">📅 Today</button>
+      <button class="btn btn-ghost" onclick="exportPDF()">⬇ PDF</button>
+      <button class="btn btn-danger" onclick="resetData()">Reset</button>
+    </div>`;
+}
+
+function renderTable(){
+  const dates = getDateRange();
+  const nums  = allTaskNums();
+
+  // Build week groups
+  const weeks=[];
+  let ws=null, wc=0;
+  dates.forEach(d=>{
+    const day=parseDate(d).getDay();
+    if(ws===null||day===1){ if(ws!==null) weeks.push({s:ws,c:wc}); ws=d; wc=1; } else wc++;
+  });
+  if(ws) weeks.push({s:ws,c:wc});
+
+  let html='<thead>';
+
+  // ── Week header row
+  html+='<tr style="height:22px;">';
+  html+=`<th class="sc col-num" rowspan="2" style="font-size:10px;">#</th>`;
+  html+=`<th class="sc col-task" rowspan="2">Task</th>`;
+  html+=`<th class="sc col-own" rowspan="2">Owner</th>`;
+  html+=`<th class="sc col-s" rowspan="2">Start</th>`;
+  html+=`<th class="sc col-e" rowspan="2">End</th>`;
+  html+=`<th class="sc col-pct" rowspan="2">%</th>`;
+  html+=`<th class="sc col-dep" rowspan="2" title="Finish-to-Start dependency">Dep</th>`;
+  weeks.forEach(w=>{
+    const wd=parseDate(w.s);
+    const lbl=wd.toLocaleDateString('en-US',{month:'short',day:'numeric'});
+    html+=`<th colspan="${w.c}" class="col-day" style="text-align:center;font-size:9px;padding:2px;">${lbl}</th>`;
+  });
+  html+='</tr>';
+
+  // ── Day label row
+  html+='<tr style="height:18px;">';
+  dates.forEach(d=>{
+    const wknd=isWeekend(d);
+    const isToday=d===TODAY;
+    const cls=isToday?'today-hdr':(wknd?'wknd-hdr':'');
+    html+=`<th class="col-day ${cls}" style="font-size:9px;padding:0;">${dayLetter(d)}</th>`;
+  });
+  html+='</tr>';
+  html+='</thead><tbody>';
+
+  // ── Task rows
+  let rowIdx=0;
+  data.categories.forEach(cat=>{
+    const tasks=data.tasks.filter(t=>t.catId===cat.id);
+    const collapsed=data.collapsed[cat.id];
+    const bg=cat.color;
+
+    // Category row
+    html+=`<tr class="cat-row">`;
+    html+=`<td class="sc col-num" style="background:${bg};border-color:${hexRgba(bg,0.3)};"></td>`;
+    html+=`<td class="sc col-task" colspan="6" style="background:${bg};border-color:${hexRgba(bg,0.3)};">
+      <span onclick="toggleCat('${cat.id}')" style="cursor:pointer;margin-right:4px;">${collapsed?'▶':'▼'}</span>
+      <span ondblclick="editCatName('${cat.id}',this)" style="cursor:pointer;">${cat.name}</span>
+      <button onclick="addTask('${cat.id}')" style="margin-left:10px;padding:1px 8px;background:rgba(255,255,255,.2);color:white;border:1px solid rgba(255,255,255,.3);border-radius:3px;cursor:pointer;font-size:10px;font-weight:600;">+ Task</button>
+    </td>`;
+    dates.forEach(d=>{
+      html+=`<td class="col-day" style="background:${hexRgba(bg,0.12)};border-color:${hexRgba(bg,0.15)};"></td>`;
+    });
+    html+='</tr>';
+
+    if(!collapsed){
+      tasks.forEach(task=>{
+        rowIdx++;
+        const even=rowIdx%2===0;
+        const depTask=task.dep?getTask(task.dep):null;
+        const depLabel=depTask?`#${nums[task.dep]}`:'—';
+        const pct=task.pct||0;
+        const totalDur=task.start&&task.end?daysBetween(task.start,task.end):0;
+        const doneDays=Math.floor(totalDur*pct/100);
+
+        html+=`<tr class="task-row${even?' even':''}" id="row-${task.id}">`;
+        html+=`<td class="sc col-num" style="text-align:center;color:#94a3b8;font-size:10px;">${nums[task.id]}</td>`;
+        html+=`<td class="sc col-task editable" onclick="editField(event,'${task.id}','name')" title="${task.name}">${task.name}</td>`;
+        html+=`<td class="sc col-own editable" onclick="editField(event,'${task.id}','owner')">${task.owner||'—'}</td>`;
+        html+=`<td class="sc col-s editable" onclick="editField(event,'${task.id}','start')">${fmtDate(task.start)}</td>`;
+        html+=`<td class="sc col-e editable" onclick="editField(event,'${task.id}','end')">${fmtDate(task.end)}</td>`;
+        html+=`<td class="sc col-pct editable" onclick="editField(event,'${task.id}','pct')" style="padding:2px 4px;">
+          <div style="position:relative;background:#e2e8f0;border-radius:3px;height:16px;overflow:hidden;margin:1px 0;">
+            <div style="position:absolute;top:0;left:0;height:100%;width:${pct}%;background:${bg};opacity:.8;transition:width .3s;"></div>
+            <span style="position:relative;font-size:10px;font-weight:700;color:#1e293b;line-height:16px;padding-left:4px;">${pct}%</span>
+          </div>
+        </td>`;
+        html+=`<td class="sc col-dep editable" onclick="editField(event,'${task.id}','dep')" style="text-align:center;font-size:10px;color:${task.dep?bg:'#94a3b8'};">${depLabel}</td>`;
+
+        // Day cells
+        dates.forEach(d=>{
+          let cellBg='';
+          const isToday=d===TODAY;
+          const wknd=isWeekend(d);
+
+          if(task.start&&task.end&&d>=task.start&&d<=task.end){
+            const fromStart=daysBetween(task.start,d);
+            cellBg = fromStart<doneDays ? bg : hexRgba(bg,0.25);
+          } else {
+            cellBg=wknd?'#f0f4f8':'#fff';
+          }
+
+          const todayCls=isToday?'today-cell':'';
+          html+=`<td class="col-day ${todayCls}" style="background:${cellBg};"></td>`;
+        });
+
+        html+='</tr>';
+      });
+    }
+  });
+
+  // Add category row
+  html+=`<tr class="add-cat-row"><td class="sc col-num"></td>`;
+  html+=`<td class="sc col-task" colspan="6" style="background:#f8fafc;">
+    <button onclick="addCategory()" style="padding:2px 10px;background:white;color:#64748b;border:1px dashed #cbd5e1;border-radius:4px;cursor:pointer;font-size:11px;">+ Add Category</button>
+  </td>`;
+  dates.forEach(()=>{ html+=`<td style="background:#f8fafc;border-color:#e2e8f0;"></td>`; });
+  html+='</tr>';
+
+  html+='</tbody>';
+  document.getElementById('ganttTable').innerHTML=html;
+}
+
+// ══════════════════════════════════════════════════════════
+// Scroll to today
+// ══════════════════════════════════════════════════════════
+function scrollToToday(){
+  const dates=getDateRange();
+  const idx=dates.indexOf(TODAY);
+  if(idx<0) return;
+  const wrapper=document.getElementById('ganttWrapper');
+  const STICKY_W=657;
+  wrapper.scrollLeft=Math.max(0, STICKY_W + idx*26 - wrapper.clientWidth/2);
+}
+
+// ══════════════════════════════════════════════════════════
+// Edit popup
+// ══════════════════════════════════════════════════════════
+let editPopupHandler=null;
+
+function closePopup(){
+  const p=document.getElementById('editPopup');
+  p.style.display='none';
+  if(editPopupHandler){ document.removeEventListener('mousedown',editPopupHandler); editPopupHandler=null; }
+}
+
+function showPopup(x,y,html,onSave){
+  const p=document.getElementById('editPopup');
+  p.innerHTML=html+`<div class="popup-btns"><button class="popup-cancel" onclick="closePopup()">Cancel</button><button class="popup-save" onclick="popupSave()">Save</button></div>`;
+  p.style.display='block';
+  const pw=240, ph=160;
+  p.style.left=Math.min(x,window.innerWidth-pw-10)+'px';
+  p.style.top=Math.min(y+8,window.innerHeight-ph-10)+'px';
+  p._onSave=onSave;
+  setTimeout(()=>{ const inp=p.querySelector('input,select'); if(inp) inp.focus(); },50);
+  if(editPopupHandler) document.removeEventListener('mousedown',editPopupHandler);
+  editPopupHandler=function(e){ if(!p.contains(e.target)) closePopup(); };
+  setTimeout(()=>document.addEventListener('mousedown',editPopupHandler),100);
+  p.onkeydown=e=>{ if(e.key==='Enter') popupSave(); if(e.key==='Escape') closePopup(); };
+}
+
+function popupSave(){
+  const p=document.getElementById('editPopup');
+  if(p._onSave) p._onSave();
+  closePopup();
+}
+
+function editField(evt, taskId, field){
+  evt.stopPropagation();
+  const task=getTask(taskId);
+  if(!task) return;
+  const rect=evt.currentTarget.getBoundingClientRect();
+  const nums=allTaskNums();
+
+  let html='';
+  if(field==='name'){
+    html=`<div class="popup-row"><label>Task Name</label><input id="pv" type="text" value="${task.name}"></div>`;
+    showPopup(rect.left,rect.bottom,html,()=>{
+      const v=document.getElementById('pv').value.trim();
+      if(v) task.name=v;
+      saveData(); render();
+    });
+  } else if(field==='owner'){
+    html=`<div class="popup-row"><label>Owner</label><input id="pv" type="text" value="${task.owner||''}"></div>`;
+    showPopup(rect.left,rect.bottom,html,()=>{
+      task.owner=document.getElementById('pv').value.trim();
+      saveData(); render();
+    });
+  } else if(field==='start'){
+    html=`<div class="popup-row"><label>Start Date</label><input id="pv" type="date" value="${task.start}"></div>
+    <div style="font-size:9px;color:#94a3b8;margin-top:4px;">⚠ Manually editing start will clear the dependency.</div>`;
+    showPopup(rect.left,rect.bottom,html,()=>{
+      const v=document.getElementById('pv').value;
+      if(!v) return;
+      const oldDur=daysBetween(task.start,task.end);
+      task.start=v;
+      task.end=addDays(v,oldDur);
+      task.dep=null;
+      cascade(task.id);
+      saveData(); render();
+    });
+  } else if(field==='end'){
+    html=`<div class="popup-row"><label>End Date</label><input id="pv" type="date" value="${task.end}"></div>`;
+    showPopup(rect.left,rect.bottom,html,()=>{
+      const v=document.getElementById('pv').value;
+      if(!v) return;
+      task.end=v;
+      cascade(task.id);
+      saveData(); render();
+    });
+  } else if(field==='pct'){
+    html=`<div class="popup-row"><label>Progress: <span id="pctLbl">${task.pct}%</span></label>
+      <input id="pv" type="range" min="0" max="100" step="5" value="${task.pct}" oninput="document.getElementById('pctLbl').textContent=this.value+'%'">
+    </div>`;
+    showPopup(rect.left,rect.bottom,html,()=>{
+      task.pct=parseInt(document.getElementById('pv').value)||0;
+      saveData(); render();
+    });
+  } else if(field==='dep'){
+    const taskList=data.tasks.filter(t=>t.id!==taskId);
+    let opts=`<option value="">— None —</option>`;
+    taskList.forEach(t=>{ opts+=`<option value="${t.id}" ${task.dep===t.id?'selected':''}>#${nums[t.id]} ${t.name.slice(0,35)}</option>`; });
+    html=`<div class="popup-row"><label>Depends On (Finish→Start)</label><select id="pv">${opts}</select></div>
+    <div style="font-size:9px;color:#94a3b8;margin-top:4px;">When predecessor ends, this task's start date auto-updates.</div>`;
+    showPopup(rect.left,rect.bottom,html,()=>{
+      const v=document.getElementById('pv').value;
+      task.dep=v||null;
+      if(v){
+        const pred=getTask(v);
+        if(pred){
+          const dur=daysBetween(task.start,task.end);
+          task.start=addDays(pred.end,1);
+          task.end=addDays(task.start,dur);
+          cascade(task.id);
+        }
+      }
+      saveData(); render();
+    });
+  }
+}
+
+// ══════════════════════════════════════════════════════════
+// Category actions
+// ══════════════════════════════════════════════════════════
+function toggleCat(catId){
+  data.collapsed[catId]=!data.collapsed[catId];
+  saveData(); render();
+}
+
+function editCatName(catId, el){
+  const cat=getCat(catId);
+  if(!cat) return;
+  const rect=el.getBoundingClientRect();
+  showPopup(rect.left,rect.bottom,
+    `<div class="popup-row"><label>Category Name</label><input id="pv" type="text" value="${cat.name}"></div>`,
+    ()=>{ const v=document.getElementById('pv').value.trim(); if(v){ cat.name=v; saveData(); render(); } }
+  );
+}
+
+function addCategory(){
+  const name=prompt('New category name:');
+  if(!name) return;
+  const colors=['#1e40af','#065f46','#6d28d9','#92400e','#374151','#b91c1c','#0369a1','#047857'];
+  const color=colors[data.categories.length % colors.length];
+  data.categories.push({ id:genId(), name:name.trim(), color });
+  saveData(); render();
+}
+
+// ══════════════════════════════════════════════════════════
+// Task actions
+// ══════════════════════════════════════════════════════════
+function addTask(catId){
+  const cat=getCat(catId);
+  const catTasks=data.tasks.filter(t=>t.catId===catId);
+  const lastTask=catTasks[catTasks.length-1];
+  const start=lastTask?addDays(lastTask.end,1):TODAY;
+  const end=addDays(start,4);
+  data.tasks.push({
+    id:genId(), catId, name:'New Task', owner:'', pct:0, start, end, dep:null
+  });
+  saveData(); render();
+}
+
+// ══════════════════════════════════════════════════════════
+// Project name
+// ══════════════════════════════════════════════════════════
+function editProjectName(el){
+  const rect=el.getBoundingClientRect();
+  showPopup(rect.left,rect.bottom,
+    `<div class="popup-row"><label>Project Name</label><input id="pv" type="text" value="${data.projectName}" style="width:280px;"></div>`,
+    ()=>{ const v=document.getElementById('pv').value.trim(); if(v){ data.projectName=v; saveData(); renderHeader(); } }
+  );
+}
+
+// ══════════════════════════════════════════════════════════
+// Export PDF
+// ══════════════════════════════════════════════════════════
+function exportPDF(){
+  const html=buildPrintHtml();
+  const blob=new Blob([html],{type:'text/html'});
+  const url=URL.createObjectURL(blob);
+  const win=window.open(url,'_blank');
+  if(win) win.addEventListener('load',()=>{ setTimeout(()=>win.print(),600); });
+}
+
+function buildPrintHtml(){
+  const CAT_COLORS={};
+  data.categories.forEach(c=>{ CAT_COLORS[c.id]=c.color||'#374151'; });
+
+  let minD=null, maxD=null;
+  data.categories.forEach(cat=>{
+    data.tasks.filter(t=>t.catId===cat.id).forEach(t=>{
+      const s=new Date(t.start), e=new Date(t.end);
+      if(!minD||s<minD) minD=s;
+      if(!maxD||e>maxD) maxD=e;
+    });
+  });
+  if(!minD){ minD=new Date(); maxD=new Date(minD.getTime()+60*864e5); }
+  maxD=new Date(maxD.getTime()+14*864e5);
+
+  const totalDays=Math.ceil((maxD-minD)/864e5)+1;
+  const mid=Math.ceil(totalDays/2);
+  const splitDate=new Date(minD.getTime()+(mid-1)*864e5);
+
+  function toYMD(d){ return d.toISOString().slice(0,10); }
+  function pAddDays(d,n){ return new Date(d.getTime()+n*864e5); }
+  function diffDays(a,b){ return Math.round((b-a)/864e5); }
+
+  const TODAY_STR=new Date().toISOString().slice(0,10);
+  const DAY_W=13;
+  const FIXED_W=236;
+  const PAGE_W=994;
+
+  const legendHtml=data.categories.map(c=>
+    `<span style="display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:8px;color:#374151;">
+      <span style="width:10px;height:10px;border-radius:2px;background:${c.color||'#374151'};display:inline-block;"></span>${c.name}
+    </span>`
+  ).join('');
+
+  function buildPage(pageNum, rangeStart, rangeEnd){
+    const nDays=diffDays(rangeStart,rangeEnd)+1;
+    const taskColW=Math.max(80, PAGE_W - FIXED_W - nDays*DAY_W);
+
+    let monthCells='', dayCells='';
+    const allMonths=[];
+    let mCount=0;
+    for(let i=0;i<nDays;i++){
+      const d=new Date(rangeStart.getTime()+i*864e5);
+      const mn=d.toLocaleString('default',{month:'short',year:'2-digit'});
+      if(i===0||mn!==allMonths[allMonths.length-1]?.name){
+        if(allMonths.length) allMonths[allMonths.length-1].count=mCount;
+        allMonths.push({name:mn,count:1,idx:i}); mCount=1;
+      } else { mCount++; }
+    }
+    if(allMonths.length) allMonths[allMonths.length-1].count=mCount;
+
+    allMonths.forEach(m=>{
+      monthCells+=`<th colspan="${m.count}" style="background:#1e3a5f;color:white;font-size:7px;font-weight:700;padding:2px 0;text-align:center;border-right:1px solid #2d5a8e;">${m.name}</th>`;
+    });
+    for(let i=0;i<nDays;i++){
+      const d=new Date(rangeStart.getTime()+i*864e5);
+      const ds=toYMD(d);
+      const dow=d.getDay();
+      const isWE=dow===0||dow===6;
+      const isTod=ds===TODAY_STR;
+      const bg=isTod?'#f97316':isWE?'#e5e7eb':'#2d5a8e';
+      const col=isTod?'white':isWE?'#9ca3af':'#93c5fd';
+      dayCells+=`<th style="width:${DAY_W}px;min-width:${DAY_W}px;background:${bg};color:${col};font-size:6px;padding:1px 0;text-align:center;border-right:1px solid rgba(255,255,255,0.1);">${d.getDate()}</th>`;
+    }
+
+    let bodyRows='';
+    data.categories.forEach(cat=>{
+      const tasks=data.tasks.filter(t=>t.catId===cat.id);
+      bodyRows+=`<tr>
+        <td colspan="5" style="background:${cat.color||'#374151'};color:white;font-size:8px;font-weight:700;padding:3px 6px;letter-spacing:0.5px;">${cat.name.toUpperCase()}</td>
+        ${Array.from({length:nDays},(_,i)=>{
+          const d=new Date(rangeStart.getTime()+i*864e5);
+          const ds=toYMD(d);
+          const dow=d.getDay();
+          const isWE=dow===0||dow===6;
+          const isTod=ds===TODAY_STR;
+          const bg=isTod?'rgba(249,115,22,0.3)':isWE?'#f3f4f6':'#f8fafc';
+          return `<td style="background:${bg};border-right:1px solid #e5e7eb;"></td>`;
+        }).join('')}
+      </tr>`;
+      tasks.forEach(task=>{
+        const tStart=new Date(task.start), tEnd=new Date(task.end);
+        const barStart=Math.max(0, diffDays(rangeStart, tStart));
+        const barEnd=Math.min(nDays-1, diffDays(rangeStart, tEnd));
+        const barSpan=barEnd-barStart+1;
+        const inRange=barEnd>=0&&barStart<nDays;
+
+        let ganttCells='';
+        for(let i=0;i<nDays;i++){
+          const d=new Date(rangeStart.getTime()+i*864e5);
+          const ds=toYMD(d);
+          const dow=d.getDay();
+          const isWE=dow===0||dow===6;
+          const isTod=ds===TODAY_STR;
+          const bg=isTod?'rgba(249,115,22,0.15)':isWE?'#f3f4f6':'white';
+          ganttCells+=`<td style="background:${bg};border-right:1px solid #e5e7eb;padding:0;position:relative;">`;
+          if(inRange&&i===barStart){
+            const barW=barSpan*DAY_W-2;
+            const fillW=Math.round(barW*(task.pct||0)/100);
+            ganttCells+=`<div style="position:absolute;top:2px;left:1px;width:${barW}px;height:10px;background:${cat.color||'#374151'};border-radius:2px;overflow:hidden;z-index:2;">
+              <div style="width:${fillW}px;height:100%;background:rgba(255,255,255,0.35);"></div>
+            </div>`;
+          }
+          ganttCells+=`</td>`;
+        }
+
+        bodyRows+=`<tr style="border-bottom:1px solid #f0f0f0;">
+          <td style="font-size:8px;padding:2px 4px;white-space:nowrap;overflow:hidden;max-width:${taskColW}px;color:#1e293b;">${task.name}</td>
+          <td style="font-size:8px;padding:2px 4px;color:#6b7a99;white-space:nowrap;">${task.owner||''}</td>
+          <td style="font-size:8px;padding:2px 4px;color:#6b7a99;white-space:nowrap;">${task.start}</td>
+          <td style="font-size:8px;padding:2px 4px;color:#6b7a99;white-space:nowrap;">${task.end}</td>
+          <td style="font-size:8px;padding:2px 4px;color:#6b7a99;text-align:center;">${task.pct||0}%</td>
+          ${ganttCells}
+        </tr>`;
+      });
+    });
+
+    const rangeLabel=`${rangeStart.toLocaleDateString('default',{month:'short',day:'numeric',year:'numeric'})} – ${rangeEnd.toLocaleDateString('default',{month:'short',day:'numeric',year:'numeric'})}`;
+    return `<div class="page">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div>
+          <span style="font-size:13px;font-weight:800;color:#1e3a5f;">${data.projectName||'Project Gantt'}</span>
+          <span style="font-size:9px;color:#6b7a99;margin-left:10px;">${rangeLabel}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:4px;">
+          ${legendHtml}
+          <span style="font-size:8px;color:#9ca3af;margin-left:8px;">Page ${pageNum} of 2</span>
+        </div>
+      </div>
+      <table style="border-collapse:collapse;width:100%;table-layout:fixed;">
+        <colgroup>
+          <col style="width:${taskColW}px;">
+          <col style="width:68px;"><col style="width:52px;"><col style="width:52px;"><col style="width:42px;">
+          ${Array.from({length:nDays},()=>`<col style="width:${DAY_W}px;">`).join('')}
+        </colgroup>
+        <thead>
+          <tr>
+            <th style="background:#1e3a5f;color:white;font-size:8px;font-weight:700;padding:3px 4px;text-align:left;" colspan="5">Task</th>
+            ${monthCells}
+          </tr>
+          <tr>
+            <th style="background:#1e3a5f;color:white;font-size:7px;padding:2px 4px;text-align:left;">Task Name</th>
+            <th style="background:#1e3a5f;color:white;font-size:7px;padding:2px 4px;text-align:left;">Owner</th>
+            <th style="background:#1e3a5f;color:white;font-size:7px;padding:2px 4px;text-align:center;">Start</th>
+            <th style="background:#1e3a5f;color:white;font-size:7px;padding:2px 4px;text-align:center;">End</th>
+            <th style="background:#1e3a5f;color:white;font-size:7px;padding:2px 4px;text-align:center;">%</th>
+            ${dayCells}
+          </tr>
+        </thead>
+        <tbody>${bodyRows}</tbody>
+      </table>
+    </div>`;
+  }
+
+  const page1=buildPage(1, minD, splitDate);
+  const page2=buildPage(2, pAddDays(splitDate,1), maxD);
+
+  return `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:'Inter',Arial,sans-serif;background:white;}
+  .page{padding:8mm;width:279mm;min-height:210mm;page-break-after:always;}
+  .page:last-child{page-break-after:auto;}
+  @page{size:letter landscape;margin:0;}
+  @media print{body{-webkit-print-color-adjust:exact;print-color-adjust:exact;}}
+</style>
+</head><body>${page1}${page2}</body></html>`;
+}
+
+// ══════════════════════════════════════════════════════════
+// Reset
+// ══════════════════════════════════════════════════════════
+function resetData(){
+  if(!confirm('Reset all data to original? This cannot be undone.')) return;
+  data=JSON.parse(JSON.stringify(INITIAL_DATA));
+  saveData(); render();
+}
+
+// ══════════════════════════════════════════════════════════
+// Init + team sync polling
+// ══════════════════════════════════════════════════════════
+loadData().then(() => {
+  render();
+  setTimeout(scrollToToday, 100);
+});
+
+// Poll every 15s — if another user saved, re-render with their changes
+setInterval(async () => {
+  const popup = document.getElementById('editPopup');
+  if (popup && popup.style.display !== 'none') return; // don't interrupt open edits
+  try {
+    const res = await fetch('/api/data');
+    const json = await res.json();
+    if (json && json._rev && json._rev !== _localRev) {
+      data = json;
+      _localRev = json._rev;
+      render();
+    }
+  } catch(e) {}
+}, 15000);
+</script>
+</body>
+</html>

@@ -1,0 +1,13 @@
+{
+  "name": "astro-shapes-gantt",
+  "version": "1.0.0",
+  "description": "Astro Shapes × Guidewheel rollout Gantt chart — live shared editing",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.11.5"
+  }
+}
