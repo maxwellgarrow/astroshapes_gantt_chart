@@ -812,41 +812,23 @@ function resetData(){
 // Init + team sync polling
 // ══════════════════════════════════════════════════════════
 (async () => {
-  // If we have a stored token (or no password is set), skip the gate
-  const check = await fetch('/api/login', {
-    method: 'POST',
-    headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ password: '' })
-  }).catch(()=>null);
-
-  if (check && check.ok) {
-    const json = await check.json().catch(()=>null);
-    if (json && json.ok) {
-      // No password configured — skip gate entirely
-      document.getElementById('authGate').classList.add('hidden');
-      await loadData(); render(); setTimeout(scrollToToday, 100);
-      return;
-    }
-  }
-
-  if (_authToken) {
-    // Try the stored token
+  // Try to load data — if it succeeds, we're authenticated (or no password is set)
+  try {
     const res = await fetch('/api/data', { headers: authHeaders() });
     if (res.ok) {
-      document.getElementById('authGate').classList.add('hidden');
       const json = await res.json();
       if (json) { data = json; _localRev = json._rev || 0; }
       else data = JSON.parse(JSON.stringify(INITIAL_DATA));
+      document.getElementById('authGate').classList.add('hidden');
       render(); setTimeout(scrollToToday, 100);
       return;
     }
-    // Token expired or wrong — clear it and show gate
-    _authToken = null;
-    sessionStorage.removeItem('gantt_token');
-  }
+  } catch(e) {}
 
-  // Show password gate
-  setTimeout(()=>document.getElementById('authInput').focus(), 100);
+  // Data load failed — clear any stale token and show the gate
+  _authToken = null;
+  sessionStorage.removeItem('gantt_token');
+  document.getElementById('authInput').focus();
 })();
 
 // Poll every 15s — if another user saved, re-render with their changes
